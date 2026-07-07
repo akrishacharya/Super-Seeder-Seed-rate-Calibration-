@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Super Seeder — Seed Rate Calibration</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Archivo:wght@400;500;600;700;800&display=swap');
+
+  :root{
+    --soil:      #1C1B17;
+    --husk:      #F6F3E9;
+    --husk-dim:  #ECE7D6;
+    --bronze:    #8A6D3B;
+    --bronze-lt: #B8985E;
+    --row-green: #4A5D3A;
+    --warn-red:  #C4392B;
+    --rule:      #DDD6C0;
+    --rule-dark: #3A382E;
+    --ink:       #1C1B17;
+    --paper:     #FBFAF5;
+  }
+
+  *{box-sizing:border-box; margin:0; padding:0;}
+
+  html{scroll-behavior:smooth;}
+
+  body{
+    background:var(--husk);
+    color:var(--ink);
+    font-family:'Archivo', sans-serif;
+    line-height:1.5;
+    min-height:100vh;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:0.001ms !important; transition-duration:0.001ms !important;}
+  }
+
+  .num{font-family:'Space Mono', monospace;}
+
+  /* ---------- App shell (phone-first) ---------- */
+  .phone-shell{
+    max-width:460px;
+    margin:0 auto;
+    min-height:100vh;
+    background:var(--husk);
+    box-shadow:0 0 60px rgba(0,0,0,0.15);
+    position:relative;
+    padding-bottom:88px; /* space for bottom nav */
+  }
+
+  .frame{ display:block; }
+
+  /* ---------- Top app bar ---------- */
+  .rail{
+    background:var(--soil);
+    color:var(--husk);
+    position:sticky;
+    top:0;
+    z-index:20;
+    padding:.9rem 1.1rem 1rem;
+    display:flex;
+    flex-direction:column;
+    gap:.9rem;
+    border-bottom:1px solid var(--rule-dark);
+  }
+
+  .rail-top{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:.75rem;
+  }
+
+  .wheel-mini{
+    display:flex;
+    align-items:center;
+    gap:.6rem;
+    flex-shrink:0;
+  }
+  .wheel-mini svg{ width:38px; height:38px; }
+  #gearGroup{
+    transform-origin:150px 150px;
+    transition:transform .5s cubic-bezier(.4,0,.2,1);
+  }
+  .wheel-mini .wm-text{ line-height:1.15; }
+  .wheel-mini .rev{
+    font-family:'Space Mono', monospace;
+    font-size:.95rem;
+    font-weight:700;
+    color:var(--bronze-lt);
+  }
+  .wheel-mini .rev-label{
+    font-size:.6rem;
+    color:var(--rule);
+    letter-spacing:.06em;
+    text-transform:uppercase;
+  }
+
+  /* Step progress dots */
+  .step-progress{
+    display:flex;
+    align-items:center;
+    gap:.4rem;
+  }
+  .step-progress .seg{
+    flex:1;
+    height:4px;
+    background:var(--rule-dark);
+    border-radius:2px;
+    overflow:hidden;
+  }
+  .step-progress .seg .fill{
+    height:100%;
+    width:0%;
+    background:var(--bronze-lt);
+    transition:width .35s ease;
+  }
+  .step-progress .seg.done .fill{ width:100%; }
+  .step-progress .seg.active .fill{ width:100%; background:var(--husk); }
+
+  .step-caption{
+    font-size:.68rem;
+    color:var(--rule);
+    letter-spacing:.04em;
+  }
+  .step-caption b{ color:var(--husk); }
+
+  /* ---------- Main content ---------- */
+  .main{
+    padding:0;
+  }
+
+  /* ---------- Card stack (one step visible at a time) ---------- */
+  .card-stack{
+    position:relative;
+  }
+
+  .card{
+    display:none;
+    padding:1.5rem 1.1rem 2rem;
+    animation:cardIn .3s ease;
+  }
+  .card.active{ display:block; }
+
+  @keyframes cardIn{
+    from{ opacity:0; transform:translateX(14px); }
+    to{ opacity:1; transform:translateX(0); }
+  }
+
+  .card-icon{
+    font-family:'Space Mono', monospace;
+    font-size:1.4rem;
+    color:var(--bronze);
+    margin-bottom:.5rem;
+  }
+  .card h2{
+    font-size:1.5rem;
+    font-weight:800;
+    letter-spacing:-0.01em;
+    line-height:1.15;
+  }
+  .card-sub{
+    font-size:.85rem;
+    color:#7A745F;
+    margin-top:.4rem;
+    margin-bottom:1.6rem;
+    max-width:34ch;
+  }
+
+  .field-list{
+    display:flex;
+    flex-direction:column;
+    gap:1.3rem;
+  }
+
+  .field{
+    display:flex;
+    flex-direction:column;
+    gap:.45rem;
+  }
+  .field label{
+    font-size:.85rem;
+    font-weight:700;
+    letter-spacing:.01em;
+    color:var(--soil);
+  }
+  .field .hint{
+    font-size:.72rem;
+    color:#8C866F;
+    line-height:1.4;
+  }
+  .field .input-row{
+    display:flex;
+    align-items:stretch;
+    border:1.5px solid var(--soil);
+    background:var(--paper);
+    border-radius:12px;
+    overflow:hidden;
+  }
+  .field .input-row:focus-within{
+    border-color:var(--bronze);
+    box-shadow:0 0 0 3px rgba(138,109,59,0.18);
+  }
+  .field input, .field select{
+    flex:1;
+    border:none;
+    background:transparent;
+    padding:.95rem .9rem;
+    font-family:'Space Mono', monospace;
+    font-size:1.15rem;
+    font-weight:700;
+    color:var(--ink);
+    min-width:0;
+  }
+  .field input:focus, .field select:focus{ outline:none; }
+  .field .unit{
+    display:flex;
+    align-items:center;
+    padding:0 .85rem;
+    background:var(--soil);
+    color:var(--husk);
+    font-family:'Space Mono', monospace;
+    font-size:.7rem;
+    letter-spacing:.03em;
+    white-space:nowrap;
+  }
+  .field select{ appearance:none; cursor:pointer; padding-right:.5rem;}
+
+  /* ---------- Inline calculate button (inside card 3) ---------- */
+  button.calc-btn-inline{
+    width:100%;
+    margin-top:1.8rem;
+    font-family:'Space Mono', monospace;
+    font-weight:700;
+    font-size:.92rem;
+    letter-spacing:.03em;
+    text-transform:uppercase;
+    background:var(--soil);
+    color:var(--husk);
+    border:none;
+    border-radius:14px;
+    padding:1.05rem;
+    cursor:pointer;
+    transition:background .15s ease, transform .1s ease;
+  }
+  button.calc-btn-inline:active{ transform:translateY(1px); background:var(--bronze); }
+  button.calc-btn-inline:focus-visible{ outline:3px solid var(--row-green); outline-offset:2px; }
+
+  /* ---------- Results ---------- */
+  .result-hero{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:1px;
+    background:var(--soil);
+    border:1px solid var(--soil);
+    border-radius:16px;
+    overflow:hidden;
+    margin-bottom:.9rem;
+  }
+
+  .result-cell{
+    background:var(--husk);
+    padding:1.2rem 1.1rem;
+  }
+  .result-cell.primary{
+    background:var(--soil);
+    color:var(--husk);
+  }
+  .result-cell .r-label{
+    font-size:.66rem;
+    letter-spacing:.07em;
+    text-transform:uppercase;
+    color:var(--bronze);
+    font-weight:700;
+    margin-bottom:.45rem;
+  }
+  .result-cell.primary .r-label{ color:var(--bronze-lt); }
+  .result-cell .r-value{
+    font-family:'Space Mono', monospace;
+    font-size:1.6rem;
+    font-weight:700;
+    line-height:1;
+  }
+  .result-cell .r-value .r-unit{
+    display:block;
+    font-size:.68rem;
+    font-weight:400;
+    color:#8C866F;
+    margin-top:.3rem;
+  }
+  .result-cell.primary .r-value .r-unit{ color:var(--rule); }
+
+  .r-detail-full{
+    font-size:.78rem;
+    color:#7A745F;
+    line-height:1.55;
+    margin-bottom:1.4rem;
+    padding:0 .1rem;
+  }
+
+  .verdict{
+    display:flex;
+    align-items:flex-start;
+    gap:.7rem;
+    padding:.95rem 1.1rem;
+    border-radius:14px;
+    border-left:4px solid var(--row-green);
+    background:#EEF1E9;
+    margin-bottom:1.2rem;
+    font-size:.86rem;
+    line-height:1.45;
+  }
+  .verdict.off{
+    border-left-color:var(--warn-red);
+    background:#F7E9E7;
+  }
+  .verdict .v-icon{
+    font-family:'Space Mono', monospace;
+    font-weight:700;
+    font-size:1rem;
+    flex-shrink:0;
+    width:20px;
+    height:20px;
+    border-radius:50%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    margin-top:.05rem;
+  }
+  .verdict.ok .v-icon{ background:var(--row-green); color:var(--husk); }
+  .verdict.off .v-icon{ background:var(--warn-red); color:var(--husk); }
+  .verdict.ok .v-icon::before{ content:'✓'; }
+  .verdict.off .v-icon::before{ content:'!'; }
+
+  /* ---------- Collapsible breakdown ---------- */
+  .breakdown-toggle{
+    width:100%;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    background:var(--paper);
+    border:1.5px solid var(--rule);
+    border-radius:12px;
+    padding:.85rem 1.1rem;
+    font-family:'Archivo', sans-serif;
+    font-size:.82rem;
+    font-weight:700;
+    color:var(--soil);
+    cursor:pointer;
+    margin-bottom:0;
+  }
+  .breakdown-toggle .chev{
+    font-size:1rem;
+    transition:transform .25s ease;
+    color:var(--bronze);
+  }
+  .breakdown-toggle[aria-expanded="true"] .chev{ transform:rotate(180deg); }
+  .breakdown-toggle:focus-visible{ outline:3px solid var(--row-green); outline-offset:2px; }
+
+  .breakdown{
+    max-height:0;
+    overflow:hidden;
+    border:0 solid var(--rule);
+    border-radius:0 0 12px 12px;
+    background:var(--paper);
+    transition:max-height .3s ease;
+  }
+  .breakdown.open{
+    max-height:600px;
+    border-width:0 1.5px 1.5px;
+    margin-top:-2px;
+  }
+  .breakdown-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    gap:.8rem;
+    padding:.75rem 1.1rem;
+    border-bottom:1px dashed var(--rule);
+    font-size:.8rem;
+  }
+  .breakdown-row:last-child{ border-bottom:none; }
+  .breakdown-row .b-label{ color:#4A473C; }
+  .breakdown-row .b-value{
+    font-family:'Space Mono', monospace;
+    font-weight:700;
+    text-align:right;
+    white-space:nowrap;
+    font-size:.85rem;
+  }
+
+  .adjust-box{
+    margin-top:1.3rem;
+    padding:1.15rem 1.2rem;
+    background:var(--soil);
+    color:var(--husk);
+    border-radius:14px;
+  }
+  .adjust-box h4{
+    font-family:'Space Mono', monospace;
+    font-size:.72rem;
+    letter-spacing:.05em;
+    text-transform:uppercase;
+    color:var(--bronze-lt);
+    margin-bottom:.55rem;
+  }
+  .adjust-box p{ font-size:.83rem; color:var(--rule); line-height:1.6; }
+
+  button.reset-btn-full{
+    width:100%;
+    margin-top:1.5rem;
+    font-family:'Archivo', sans-serif;
+    font-weight:700;
+    font-size:.85rem;
+    background:transparent;
+    color:var(--soil);
+    border:1.5px solid var(--soil);
+    border-radius:14px;
+    padding:.95rem;
+    cursor:pointer;
+  }
+  button.reset-btn-full:active{ background:var(--husk-dim); }
+  button.reset-btn-full:focus-visible{ outline:3px solid var(--row-green); outline-offset:2px; }
+
+  .footer-note{
+    margin-top:1.4rem;
+    font-size:.68rem;
+    color:#8C866F;
+    line-height:1.6;
+    padding:0 .1rem;
+  }
+
+  /* ---------- Bottom nav bar (mobile app tab-bar style) ---------- */
+  .bottom-nav{
+    position:fixed;
+    bottom:0;
+    left:0;
+    right:0;
+    max-width:460px;
+    margin:0 auto;
+    background:var(--soil);
+    border-top:1px solid var(--rule-dark);
+    padding:.85rem 1.1rem calc(.85rem + env(safe-area-inset-bottom));
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:.75rem;
+    z-index:30;
+  }
+
+  .nav-btn{
+    display:flex;
+    align-items:center;
+    gap:.35rem;
+    font-family:'Archivo', sans-serif;
+    font-weight:700;
+    font-size:.85rem;
+    padding:.75rem 1.1rem;
+    border-radius:12px;
+    border:none;
+    cursor:pointer;
+    background:transparent;
+    color:var(--rule);
+    transition:opacity .15s ease;
+  }
+  .nav-btn:disabled{ opacity:.35; cursor:default; }
+  .nav-btn.primary{
+    background:var(--bronze-lt);
+    color:var(--soil);
+  }
+  .nav-btn.primary:active{ background:var(--bronze); }
+  .nav-btn:focus-visible{ outline:3px solid var(--row-green); outline-offset:2px; }
+  .nav-arrow{ font-size:1.1rem; line-height:1; }
+
+  .nav-dots{
+    display:flex;
+    gap:.4rem;
+  }
+  .nd{
+    width:6px; height:6px;
+    border-radius:50%;
+    background:var(--rule-dark);
+    transition:background .2s ease, transform .2s ease;
+  }
+  .nd.active{ background:var(--bronze-lt); transform:scale(1.35); }
+  .nd.done{ background:var(--bronze); }
+
+  ::selection{ background:var(--bronze); color:var(--husk); }
+</style>
+</head>
+<body>
+
+<div class="phone-shell">
+<div class="frame">
+
+  <!-- TOP APP BAR — the ground wheel, driven by the diameter input -->
+  <div class="rail">
+    <div class="rail-top">
+      <div class="wheel-mini">
+        <svg viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <g id="gearGroup">
+            <circle cx="150" cy="150" r="95" fill="none" stroke="#B8985E" stroke-width="9"/>
+            <g id="teeth" stroke="#B8985E" stroke-width="16" stroke-linecap="round">
+              <line x1="150" y1="41" x2="150" y2="60"/>
+              <line x1="150" y1="240" x2="150" y2="259"/>
+              <line x1="41" y1="150" x2="60" y2="150"/>
+              <line x1="240" y1="150" x2="259" y2="150"/>
+              <line x1="83" y1="83" x2="97" y2="97"/>
+              <line x1="203" y1="203" x2="217" y2="217"/>
+              <line x1="83" y1="217" x2="97" y2="203"/>
+              <line x1="203" y1="97" x2="217" y2="83"/>
+            </g>
+            <circle cx="150" cy="150" r="8" fill="#F6F3E9"/>
+          </g>
+        </svg>
+        <div class="wm-text">
+          <div class="rev num" id="wheelCirc">—</div>
+          <div class="rev-label">cm / rev</div>
+        </div>
+      </div>
+      <div style="text-align:right;">
+        <h1 style="font-size:.95rem;font-weight:800;">Super Seeder</h1>
+        <p style="font-size:.62rem;color:var(--bronze-lt);letter-spacing:.06em;">CALIBRATION</p>
+      </div>
+    </div>
+
+    <div class="step-progress" id="stepProgress">
+      <div class="seg" data-i="1"><div class="fill"></div></div>
+      <div class="seg" data-i="2"><div class="fill"></div></div>
+      <div class="seg" data-i="3"><div class="fill"></div></div>
+      <div class="seg" data-i="4"><div class="fill"></div></div>
+    </div>
+    <div class="step-caption"><b id="stepNum">Step 1 of 4</b> · <span id="stepName">Wheel &amp; travel</span></div>
+  </div>
+
+  <!-- MAIN CONTENT — swipeable card stack -->
+  <main class="main">
+
+    <div class="card-stack">
+
+      <!-- CARD 1 — Wheel & travel -->
+      <section class="card active" data-step="1">
+        <div class="card-icon">①</div>
+        <h2>Ground wheel &amp; travel</h2>
+        <p class="card-sub">How far does the machine roll per wheel turn?</p>
+
+        <div class="field-list">
+          <div class="field">
+            <label for="wheelDia">Ground wheel diameter</label>
+            <div class="input-row">
+              <input type="number" id="wheelDia" inputmode="decimal" placeholder="e.g. 60" min="0" step="0.1">
+              <span class="unit">CM</span>
+            </div>
+            <span class="hint">Tyre outer edge to outer edge, across the drive wheel.</span>
+          </div>
+          <div class="field">
+            <label for="slip">Wheel slip allowance</label>
+            <div class="input-row">
+              <input type="number" id="slip" inputmode="decimal" placeholder="e.g. 5" min="0" max="30" step="0.5">
+              <span class="unit">%</span>
+            </div>
+            <span class="hint">Loose or wet soil slips more. 3–5% is typical for firm field.</span>
+          </div>
+          <div class="field">
+            <label for="revsCounted">Revolutions to test</label>
+            <div class="input-row">
+              <input type="number" id="revsCounted" inputmode="numeric" placeholder="e.g. 10" min="1" step="1">
+              <span class="unit">REV</span>
+            </div>
+            <span class="hint">How many wheel turns you'll hand-crank in the trial.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- CARD 2 — Row & target -->
+      <section class="card" data-step="2">
+        <div class="card-icon">②</div>
+        <h2>Row spacing &amp; target</h2>
+        <p class="card-sub">What does "correct" look like for this crop?</p>
+
+        <div class="field-list">
+          <div class="field">
+            <label for="rowSpacing">Row-to-row spacing</label>
+            <div class="input-row">
+              <input type="number" id="rowSpacing" inputmode="decimal" placeholder="e.g. 22.5" min="1" step="0.1">
+              <span class="unit">CM</span>
+            </div>
+            <span class="hint">Distance between adjacent seed furrow openers.</span>
+          </div>
+          <div class="field">
+            <label for="numRows">Number of seed rows</label>
+            <div class="input-row">
+              <input type="number" id="numRows" inputmode="numeric" placeholder="e.g. 9" min="1" step="1">
+              <span class="unit">ROWS</span>
+            </div>
+            <span class="hint">Total furrow openers across the working width.</span>
+          </div>
+          <div class="field">
+            <label for="targetRate">Target seed rate</label>
+            <div class="input-row">
+              <input type="number" id="targetRate" inputmode="decimal" placeholder="e.g. 100" min="0" step="0.5">
+              <span class="unit">KG/HA</span>
+            </div>
+            <span class="hint">Your crop's agronomic recommendation (e.g. wheat ≈ 100 kg/ha).</span>
+          </div>
+          <div class="field">
+            <label for="seedWeight">1000-seed weight</label>
+            <div class="input-row">
+              <input type="number" id="seedWeight" inputmode="decimal" placeholder="e.g. 38" min="0.1" step="0.1">
+              <span class="unit">G</span>
+            </div>
+            <span class="hint">Weigh 1000 seeds from this lot on a small scale.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- CARD 3 — Trial -->
+      <section class="card" data-step="3">
+        <div class="card-icon">③</div>
+        <h2>Static trial</h2>
+        <p class="card-sub">Jack up the wheel, turn it the set number of times, weigh what drops.</p>
+
+        <div class="field-list">
+          <div class="field">
+            <label for="seedCollected">Seed collected in trial</label>
+            <div class="input-row">
+              <input type="number" id="seedCollected" inputmode="decimal" placeholder="e.g. 45" min="0" step="0.1">
+              <span class="unit">G</span>
+            </div>
+            <span class="hint">Total weight from ALL rows combined, for the revolutions in step 1.</span>
+          </div>
+          <div class="field">
+            <label for="metering">Metering mechanism</label>
+            <div class="input-row">
+              <select id="metering">
+                <option value="fluted">Fluted roller</option>
+                <option value="cell">Cell-feed / cup</option>
+                <option value="inclined">Inclined plate</option>
+                <option value="brush">Brush-belt</option>
+              </select>
+            </div>
+            <span class="hint">Changes how you'll physically adjust rate if needed.</span>
+          </div>
+        </div>
+
+        <button class="calc-btn-inline" id="calcBtn">Calculate calibration</button>
+      </section>
+
+      <!-- CARD 4 — Results -->
+      <section class="card" data-step="4" id="resultsCard">
+        <div class="card-icon">✓</div>
+        <h2>Calibration result</h2>
+        <p class="card-sub">Based on the trial you just entered.</p>
+
+        <div id="verdictBox" class="verdict ok">
+          <span class="v-icon"></span>
+          <span id="verdictText">—</span>
+        </div>
+
+        <div class="result-hero">
+          <div class="result-cell primary">
+            <div class="r-label">Actual rate</div>
+            <div class="r-value"><span id="actualRate">—</span><span class="r-unit">kg/ha</span></div>
+          </div>
+          <div class="result-cell">
+            <div class="r-label">Target rate</div>
+            <div class="r-value"><span id="targetRateOut">—</span><span class="r-unit">kg/ha</span></div>
+          </div>
+        </div>
+        <div class="r-detail-full" id="deviationText">—</div>
+
+        <button class="breakdown-toggle" id="breakdownToggle" aria-expanded="false">
+          <span>Show full breakdown</span>
+          <span class="chev">⌄</span>
+        </button>
+
+        <div class="breakdown" id="breakdownPanel">
+          <div class="breakdown-row">
+            <span class="b-label">Distance / revolution (with slip)</span>
+            <span class="b-value num" id="distPerRev">—</span>
+          </div>
+          <div class="breakdown-row">
+            <span class="b-label">Trial ground area covered</span>
+            <span class="b-value num" id="areaTrial">—</span>
+          </div>
+          <div class="breakdown-row">
+            <span class="b-label">Rate scaled to per-hectare</span>
+            <span class="b-value num" id="rateScaled">—</span>
+          </div>
+          <div class="breakdown-row">
+            <span class="b-label">Working width of seeder</span>
+            <span class="b-value num" id="workingWidth">—</span>
+          </div>
+          <div class="breakdown-row">
+            <span class="b-label">Seeds per metre of row</span>
+            <span class="b-value num" id="seedsPerMetre">—</span>
+          </div>
+        </div>
+
+        <div class="adjust-box">
+          <h4>What to change</h4>
+          <p id="adjustText">—</p>
+        </div>
+
+        <button class="reset-btn-full" id="resetBtn">Start a new calibration</button>
+
+        <p class="footer-note">
+          Formula: distance/rev = π × diameter × (1 − slip%). Trial area = working width × distance travelled. Actual rate = seed collected ÷ trial area. Re-run this trial after any gear or metering change — never sow a full field on an untested setting.
+        </p>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<!-- BOTTOM NAV BAR -->
+<nav class="bottom-nav" id="bottomNav">
+  <button class="nav-btn" id="backBtn" disabled>
+    <span class="nav-arrow">‹</span><span>Back</span>
+  </button>
+  <div class="nav-dots" id="navDots">
+    <span class="nd active" data-i="1"></span>
+    <span class="nd" data-i="2"></span>
+    <span class="nd" data-i="3"></span>
+    <span class="nd" data-i="4"></span>
+  </div>
+  <button class="nav-btn primary" id="nextBtn">
+    <span>Next</span><span class="nav-arrow">›</span>
+  </button>
+</nav>
+</div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+
+  const wheelDia      = $('wheelDia');
+  const slip          = $('slip');
+  const revsCounted   = $('revsCounted');
+  const rowSpacing    = $('rowSpacing');
+  const numRows       = $('numRows');
+  const targetRate    = $('targetRate');
+  const seedWeight    = $('seedWeight');
+  const seedCollected = $('seedCollected');
+  const metering      = $('metering');
+
+  const gearGroup = $('gearGroup');
+  const wheelCirc = $('wheelCirc');
+
+  const STEP_NAMES = ['Wheel & travel', 'Row & target', 'Static trial', 'Result'];
+  const TOTAL_STEPS = 4;
+  let currentStep = 1;
+
+  const cards      = Array.from(document.querySelectorAll('.card'));
+  const segs       = Array.from(document.querySelectorAll('.step-progress .seg'));
+  const dots       = Array.from(document.querySelectorAll('.nd'));
+  const backBtn    = $('backBtn');
+  const nextBtn    = $('nextBtn');
+  const stepNum    = $('stepNum');
+  const stepName   = $('stepName');
+
+  // --- Live wheel spin + circumference readout, driven by diameter input ---
+  let spinDeg = 0;
+  function updateWheel(){
+    const d = parseFloat(wheelDia.value);
+    if (d > 0){
+      const circumference = Math.PI * d;
+      wheelCirc.textContent = circumference.toFixed(1);
+      spinDeg = (spinDeg + Math.min(d, 120) * 0.9) % 360;
+      gearGroup.style.transform = `rotate(${spinDeg}deg)`;
+    } else {
+      wheelCirc.textContent = '—';
+    }
+  }
+  wheelDia.addEventListener('input', updateWheel);
+
+  // --- Fields required per step, for gating "Next" ---
+  const stepFields = {
+    1: [wheelDia, slip, revsCounted],
+    2: [rowSpacing, numRows, targetRate, seedWeight],
+    3: [seedCollected], // metering has a default, always "filled"
+    4: []
+  };
+
+  function stepIsValid(step){
+    const fields = stepFields[step] || [];
+    return fields.every(f => f.value !== '' && !isNaN(parseFloat(f.value)) && parseFloat(f.value) >= 0);
+  }
+
+  function renderNav(){
+    // progress segments
+    segs.forEach(seg => {
+      const i = parseInt(seg.dataset.i, 10);
+      seg.classList.toggle('done', i < currentStep);
+      seg.classList.toggle('active', i === currentStep);
+    });
+    // bottom dots
+    dots.forEach(dot => {
+      const i = parseInt(dot.dataset.i, 10);
+      dot.classList.toggle('active', i === currentStep);
+      dot.classList.toggle('done', i < currentStep);
+    });
+    stepNum.textContent = `Step ${currentStep} of ${TOTAL_STEPS}`;
+    stepName.textContent = STEP_NAMES[currentStep - 1];
+
+    backBtn.disabled = currentStep === 1;
+
+    if (currentStep === 3){
+      nextBtn.style.display = 'none'; // card 3 has its own inline Calculate button
+    } else if (currentStep === 4){
+      nextBtn.style.display = 'none'; // results card ends the flow (has its own reset button)
+    } else {
+      nextBtn.style.display = 'flex';
+      nextBtn.innerHTML = '<span>Next</span><span class="nav-arrow">›</span>';
+    }
+  }
+
+  function goToStep(step, opts){
+    opts = opts || {};
+    if (step < 1 || step > TOTAL_STEPS) return;
+    cards.forEach(c => c.classList.remove('active'));
+    const target = cards.find(c => parseInt(c.dataset.step, 10) === step);
+    if (target) target.classList.add('active');
+    currentStep = step;
+    renderNav();
+    if (!opts.silent){
+      window.scrollTo({top:0, behavior:'auto'});
+    }
+  }
+
+  backBtn.addEventListener('click', () => {
+    if (currentStep > 1) goToStep(currentStep - 1);
+  });
+
+  nextBtn.addEventListener('click', () => {
+    if (!stepIsValid(currentStep)){
+      const fields = stepFields[currentStep] || [];
+      const firstEmpty = fields.find(f => f.value === '' || isNaN(parseFloat(f.value)));
+      if (firstEmpty){
+        firstEmpty.closest('.field').style.animation = 'none';
+        void firstEmpty.offsetWidth;
+        firstEmpty.closest('.field').style.animation = 'shake .3s ease';
+        firstEmpty.focus();
+      }
+      return;
+    }
+    if (currentStep < TOTAL_STEPS) goToStep(currentStep + 1);
+  });
+
+  // --- Swipe gesture between cards ---
+  const cardStack = document.querySelector('.card-stack');
+  let touchStartX = 0, touchStartY = 0;
+  cardStack.addEventListener('touchstart', e => {
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+  }, {passive:true});
+  cardStack.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    const dy = e.changedTouches[0].clientY - touchStartY;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5){
+      if (dx < 0 && currentStep < 3){
+        // swipe left = next (only through steps 1→2→3, since 3 and 4 use buttons)
+        nextBtn.click();
+      } else if (dx > 0 && currentStep > 1 && currentStep <= 4){
+        backBtn.click();
+      }
+    }
+  }, {passive:true});
+
+  // --- Reset ---
+  function resetAll(){
+    [wheelDia, slip, revsCounted, rowSpacing, numRows, targetRate, seedWeight, seedCollected]
+      .forEach(el => el.value = '');
+    metering.selectedIndex = 0;
+    wheelCirc.textContent = '—';
+    spinDeg = 0;
+    gearGroup.style.transform = 'rotate(0deg)';
+    $('breakdownPanel').classList.remove('open');
+    $('breakdownToggle').setAttribute('aria-expanded', 'false');
+    $('breakdownToggle').querySelector('span').textContent = 'Show full breakdown';
+    goToStep(1);
+    wheelDia.focus();
+  }
+  $('resetBtn').addEventListener('click', resetAll);
+
+  // --- Breakdown collapsible toggle ---
+  $('breakdownToggle').addEventListener('click', () => {
+    const panel = $('breakdownPanel');
+    const btn = $('breakdownToggle');
+    const isOpen = panel.classList.toggle('open');
+    btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    btn.querySelector('span').textContent = isOpen ? 'Hide full breakdown' : 'Show full breakdown';
+  });
+
+  // --- Calibration math ---
+  $('calcBtn').addEventListener('click', () => {
+    const dia   = parseFloat(wheelDia.value);
+    const slipPct = parseFloat(slip.value);
+    const revs  = parseFloat(revsCounted.value);
+    const spacing = parseFloat(rowSpacing.value);
+    const rows  = parseFloat(numRows.value);
+    const target = parseFloat(targetRate.value);
+    const kSeedW = parseFloat(seedWeight.value);
+    const collected = parseFloat(seedCollected.value); // grams
+
+    const required = [dia, slipPct, revs, spacing, rows, target, kSeedW, collected];
+    if (required.some(v => isNaN(v) || v < 0) || dia === 0 || revs === 0 || spacing === 0 || rows === 0 || target === 0){
+      alert('Please fill in every field with valid positive numbers before calculating.');
+      return;
+    }
+
+    const circumferenceCm = Math.PI * dia;
+    const distPerRevCm = circumferenceCm * (1 - slipPct / 100);
+    const totalDistCm = distPerRevCm * revs;
+    const totalDistM  = totalDistCm / 100;
+
+    const workingWidthCm = spacing * rows;
+    const workingWidthM  = workingWidthCm / 100;
+
+    const areaTrialM2 = workingWidthM * totalDistM;
+    const areaTrialHa = areaTrialM2 / 10000;
+
+    const collectedKg = collected / 1000;
+    const actualRate = collectedKg / areaTrialHa;
+
+    const deviationPct = ((actualRate - target) / target) * 100;
+    const withinTolerance = Math.abs(deviationPct) <= 5;
+
+    const totalSeedsInTrial = collected / (kSeedW / 1000);
+    const totalRowLengthM = totalDistM * rows;
+    const seedsPerMetre = totalSeedsInTrial / totalRowLengthM;
+
+    $('actualRate').textContent = actualRate.toFixed(1);
+    $('targetRateOut').textContent = target.toFixed(1);
+    $('distPerRev').textContent = distPerRevCm.toFixed(1) + ' cm';
+    $('areaTrial').textContent = areaTrialM2.toFixed(2) + ' m²';
+    $('rateScaled').textContent = actualRate.toFixed(1) + ' kg/ha';
+    $('workingWidth').textContent = workingWidthM.toFixed(2) + ' m';
+    $('seedsPerMetre').textContent = seedsPerMetre.toFixed(1) + ' seeds/m';
+
+    const verdictBox = $('verdictBox');
+    const verdictText = $('verdictText');
+    const deviationText = $('deviationText');
+    const adjustText = $('adjustText');
+
+    if (withinTolerance){
+      verdictBox.className = 'verdict ok';
+      verdictText.textContent = `Within tolerance — ${Math.abs(deviationPct).toFixed(1)}% ${deviationPct >= 0 ? 'above' : 'below'} target. Safe to move to the field.`;
+      deviationText.textContent = `${deviationPct >= 0 ? '+' : ''}${deviationPct.toFixed(1)}% vs target — within ±5% tolerance.`;
+      adjustText.textContent = 'No change needed. Run one more confirmation trial, then sow. Re-check after every 3–4 hectares, since roller wear and seed-lot moisture both shift rate slightly.';
+    } else {
+      const tooMuch = deviationPct > 0;
+      verdictBox.className = 'verdict off';
+      verdictText.textContent = `Off target — ${Math.abs(deviationPct).toFixed(1)}% ${tooMuch ? 'above' : 'below'} your ${target} kg/ha target.`;
+      deviationText.textContent = `${deviationPct >= 0 ? '+' : ''}${deviationPct.toFixed(1)}% vs target — outside ±5% tolerance.`;
+
+      const correctionFactor = target / actualRate;
+      let mechAdvice = '';
+      if (metering.value === 'fluted'){
+        mechAdvice = tooMuch
+          ? `shorten the exposed fluted-roller length or reduce roller RPM at the drive sprocket (~${(correctionFactor*100).toFixed(0)}% of current exposed length).`
+          : `lengthen the exposed fluted-roller length or raise roller RPM at the drive sprocket (~${(correctionFactor*100).toFixed(0)}% of current exposed length).`;
+      } else if (metering.value === 'cell'){
+        mechAdvice = tooMuch
+          ? 'switch to a smaller cell/cup size, or partially block cells with the gate plate.'
+          : 'switch to a larger cell/cup size, or open the gate plate fully.';
+      } else if (metering.value === 'inclined'){
+        mechAdvice = tooMuch
+          ? 'lower the plate speed via the drive sprocket ratio, or use a plate with fewer/smaller holes.'
+          : 'raise the plate speed via the drive sprocket ratio, or use a plate with more/larger holes.';
+      } else {
+        mechAdvice = tooMuch
+          ? 'reduce brush contact pressure or narrow the metering gate.'
+          : 'increase brush contact pressure or widen the metering gate.';
+      }
+
+      adjustText.textContent = `Multiply your current metering setting by ~${correctionFactor.toFixed(2)}×. In practice: ${mechAdvice} Re-run the trial after adjusting — don't sow a field on an uncorrected setting.`;
+    }
+
+    goToStep(4);
+  });
+
+  // shake keyframe (added dynamically since it's only needed for validation feedback)
+  const styleTag = document.createElement('style');
+  styleTag.textContent = `@keyframes shake{10%,90%{transform:translateX(-1px);}20%,80%{transform:translateX(2px);}30%,50%,70%{transform:translateX(-4px);}40%,60%{transform:translateX(4px);}}`;
+  document.head.appendChild(styleTag);
+
+  renderNav();
+})();
+</script>
+
+</body>
+</html>
